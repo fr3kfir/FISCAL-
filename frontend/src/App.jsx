@@ -6,7 +6,7 @@ import StockStats from './components/StockStats'
 import FundamentalsChart from './components/FundamentalsChart'
 import AICopilot from './components/AICopilot'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API = import.meta.env.VITE_API_URL || ''
 
 const PERIOD_MAP = {
   '1W': { period: '5d',  interval: '15m' },

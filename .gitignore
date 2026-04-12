@@ -19,6 +19,9 @@ node_modules/
 frontend/dist/
 frontend/.vite/
 
+# Keep backend/static (built frontend served by FastAPI)
+!backend/static
+
 # OS
 .DS_Store
 Thumbs.db

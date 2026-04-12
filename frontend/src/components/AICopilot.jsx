@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API = import.meta.env.VITE_API_URL || ''
 
 const SUGGESTIONS = (ticker) => ticker ? [
   `Analyze ${ticker} fundamentals`,

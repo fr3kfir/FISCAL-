@@ -1,10 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import yfinance as yf
 import anthropic
 import os
 import json
+from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional
@@ -258,8 +260,20 @@ async def chat(body: ChatMessage):
     return StreamingResponse(generate(), media_type="text/event-stream")
 
 
+# ── Serve React frontend ────────────────────────────────────────────────────���
+STATIC_DIR = Path(__file__).parent / "static"
+if STATIC_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        index = STATIC_DIR / "index.html"
+        if index.exists():
+            return FileResponse(index)
+        return {"detail": "Frontend not found"}
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
-    reload = os.getenv("RAILWAY_ENVIRONMENT") is None  # no reload in production
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
