@@ -7,9 +7,9 @@ const NavItem = ({ icon, label, active, onClick }) => (
   </div>
 )
 
-export default function Sidebar({ activeTicker, onSelectTicker }) {
+export default function Sidebar({ activeTicker, onSelectTicker, isOpen, page, onPageChange }) {
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${isOpen ? ' open' : ''}`}>
       <div className="sidebar-logo">
         <div className="logo-icon">F</div>
         <span className="logo-text">Fiscal</span>
@@ -20,7 +20,8 @@ export default function Sidebar({ activeTicker, onSelectTicker }) {
         <div className="nav-label">Research</div>
 
         <NavItem
-          active={true}
+          active={page === 'dashboard'}
+          onClick={() => onPageChange('dashboard')}
           icon={
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -33,6 +34,8 @@ export default function Sidebar({ activeTicker, onSelectTicker }) {
         />
 
         <NavItem
+          active={page === 'markets'}
+          onClick={() => onPageChange('markets')}
           icon={
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
@@ -42,6 +45,8 @@ export default function Sidebar({ activeTicker, onSelectTicker }) {
         />
 
         <NavItem
+          active={page === 'screener'}
+          onClick={() => onPageChange('screener')}
           icon={
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="8" />
@@ -49,27 +54,6 @@ export default function Sidebar({ activeTicker, onSelectTicker }) {
             </svg>
           }
           label="Screener"
-        />
-
-        <div className="nav-label" style={{ marginTop: 8 }}>Portfolio</div>
-
-        <NavItem
-          icon={
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-            </svg>
-          }
-          label="Holdings"
-        />
-
-        <NavItem
-          icon={
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="12" y1="1" x2="12" y2="23" />
-              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-            </svg>
-          }
-          label="P&L"
         />
       </nav>
 

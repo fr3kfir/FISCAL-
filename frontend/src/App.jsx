@@ -5,6 +5,22 @@ import StockChart from './components/StockChart'
 import StockStats from './components/StockStats'
 import FundamentalsChart from './components/FundamentalsChart'
 import AICopilot from './components/AICopilot'
+import MarketsPage from './pages/MarketsPage'
+import ScreenerPage from './pages/ScreenerPage'
+
+function useTheme() {
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem('fiscal-theme')
+    return saved ? saved === 'dark' : true
+  })
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    localStorage.setItem('fiscal-theme', dark ? 'dark' : 'light')
+  }, [dark])
+
+  return [dark, () => setDark(d => !d)]
+}
 
 const API = import.meta.env.VITE_API_URL || ''
 
@@ -107,6 +123,10 @@ export default function App() {
   const [chartLoading, setChartLoading] = useState(false)
   const [period, setPeriod] = useState('1Y')
   const [descExpanded, setDescExpanded] = useState(false)
+  const [darkMode, toggleDarkMode] = useTheme()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [copilotOpen, setCopilotOpen] = useState(false)
+  const [page, setPage] = useState('dashboard')
 
   const fetchStock = async (t) => {
     setStockLoading(true)
@@ -164,105 +184,134 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar activeTicker={ticker} onSelectTicker={selectTicker} />
+      {/* Sidebar overlay for mobile */}
+      <div
+        className={`sidebar-overlay${sidebarOpen ? ' visible' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      <Sidebar
+        activeTicker={ticker}
+        onSelectTicker={(t) => { selectTicker(t); setSidebarOpen(false); setPage('dashboard') }}
+        isOpen={sidebarOpen}
+        page={page}
+        onPageChange={(p) => { setPage(p); setSidebarOpen(false) }}
+      />
 
       <div className="main-area">
         <Header
           onSelectTicker={selectTicker}
           period={period}
           onPeriodChange={handlePeriodChange}
+          darkMode={darkMode}
+          onToggleTheme={toggleDarkMode}
+          onMenuToggle={() => setSidebarOpen(o => !o)}
         />
 
         <div className="content-area">
-          <main className="main-content">
-            {!ticker ? (
-              <Landing onSelect={selectTicker} />
-            ) : (
-              <>
-                {/* Stock Header */}
-                <div className="stock-header">
-                  <div className="stock-title">
-                    <div className="stock-symbol">{ticker}</div>
-                    <div className="stock-name">
-                      {stockLoading ? <span className="loading-skeleton loading-bar" style={{ width: 180, height: 14 }} /> : (stock?.name || '')}
+          {page === 'markets' ? (
+            <main className="main-content">
+              <MarketsPage />
+            </main>
+          ) : page === 'screener' ? (
+            <main className="main-content">
+              <ScreenerPage
+                onSelectTicker={(t) => { selectTicker(t); setPage('dashboard') }}
+              />
+            </main>
+          ) : (
+            <>
+              <main className="main-content">
+                {!ticker ? (
+                  <Landing onSelect={selectTicker} />
+                ) : (
+                  <>
+                    {/* Stock Header */}
+                    <div className="stock-header">
+                      <div className="stock-title">
+                        <div className="stock-symbol">{ticker}</div>
+                        <div className="stock-name">
+                          {stockLoading ? <span className="loading-skeleton loading-bar" style={{ width: 180, height: 14 }} /> : (stock?.name || '')}
+                        </div>
+                        {stock && (
+                          <div className="stock-tags">
+                            {stock.sector && <span className="tag">{stock.sector}</span>}
+                            {stock.exchange && <span className="tag">{stock.exchange}</span>}
+                            {stock.country && <span className="tag">{stock.country}</span>}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="stock-price-block">
+                        {stockLoading ? (
+                          <>
+                            <div className="loading-skeleton loading-bar" style={{ width: 120, height: 30, marginBottom: 6 }} />
+                            <div className="loading-skeleton loading-bar" style={{ width: 80, height: 14 }} />
+                          </>
+                        ) : stock ? (
+                          <>
+                            <div className="stock-price">${stock.price?.toFixed(2)}</div>
+                            <div className={`stock-change ${isUp ? 'up' : 'down'}`}>
+                              {isUp ? '▲' : '▼'} {Math.abs(stock.change)?.toFixed(2)} ({Math.abs(stock.changePercent)?.toFixed(2)}%)
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
-                    {stock && (
-                      <div className="stock-tags">
-                        {stock.sector && <span className="tag">{stock.sector}</span>}
-                        {stock.exchange && <span className="tag">{stock.exchange}</span>}
-                        {stock.country && <span className="tag">{stock.country}</span>}
+
+                    <StockStats stock={stock} loading={stockLoading} />
+
+                    <StockChart
+                      ticker={ticker}
+                      period={period}
+                      chartData={chartData}
+                      loading={chartLoading}
+                    />
+
+                    {(stock?.description || stockLoading) && (
+                      <div className="description-card">
+                        <div className="card-title">About</div>
+                        {stockLoading ? (
+                          <div className="loading-state">
+                            {[100, 90, 80].map((w, i) => (
+                              <div key={i} className="loading-skeleton loading-bar" style={{ width: `${w}%` }} />
+                            ))}
+                          </div>
+                        ) : (
+                          <>
+                            <div className={`description-text${descExpanded ? '' : ' collapsed'}`}>
+                              {stock?.description}
+                            </div>
+                            <button className="read-more-btn" onClick={() => setDescExpanded(e => !e)}>
+                              {descExpanded ? 'Show less' : 'Read more'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
-                  </div>
 
-                  <div className="stock-price-block">
-                    {stockLoading ? (
-                      <>
-                        <div className="loading-skeleton loading-bar" style={{ width: 120, height: 30, marginBottom: 6 }} />
-                        <div className="loading-skeleton loading-bar" style={{ width: 80, height: 14 }} />
-                      </>
-                    ) : stock ? (
-                      <>
-                        <div className="stock-price">${stock.price?.toFixed(2)}</div>
-                        <div className={`stock-change ${isUp ? 'up' : 'down'}`}>
-                          {isUp ? '▲' : '▼'} {Math.abs(stock.change)?.toFixed(2)} ({Math.abs(stock.changePercent)?.toFixed(2)}%)
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
+                    <FundamentalsChart financials={financials} loading={stockLoading && !financials} />
 
-                {/* Stats */}
-                <StockStats stock={stock} loading={stockLoading} />
-
-                {/* Chart */}
-                <StockChart
-                  ticker={ticker}
-                  period={period}
-                  chartData={chartData}
-                  loading={chartLoading}
-                />
-
-                {/* Description */}
-                {(stock?.description || stockLoading) && (
-                  <div className="description-card">
-                    <div className="card-title">About</div>
-                    {stockLoading ? (
-                      <div className="loading-state">
-                        {[100, 90, 80].map((w, i) => (
-                          <div key={i} className="loading-skeleton loading-bar" style={{ width: `${w}%` }} />
-                        ))}
+                    {financials && (
+                      <div className="financials-card">
+                        <div className="card-title">Financial Statements</div>
+                        <FinancialsTable financials={financials} />
                       </div>
-                    ) : (
-                      <>
-                        <div className={`description-text${descExpanded ? '' : ' collapsed'}`}>
-                          {stock?.description}
-                        </div>
-                        <button className="read-more-btn" onClick={() => setDescExpanded(e => !e)}>
-                          {descExpanded ? 'Show less' : 'Read more'}
-                        </button>
-                      </>
                     )}
-                  </div>
+                  </>
                 )}
+              </main>
 
-                {/* Fundamentals Charts */}
-                <FundamentalsChart financials={financials} loading={stockLoading && !financials} />
-
-                {/* Financials Table */}
-                {financials && (
-                  <div className="financials-card">
-                    <div className="card-title">Financial Statements</div>
-                    <FinancialsTable financials={financials} />
-                  </div>
-                )}
-              </>
-            )}
-          </main>
-
-          <AICopilot ticker={ticker} stockContext={stock} />
+              <AICopilot ticker={ticker} stockContext={stock} mobileOpen={copilotOpen} />
+            </>
+          )}
         </div>
       </div>
+
+      {/* Floating button to open AI Copilot on mobile */}
+      <button className="copilot-fab" onClick={() => setCopilotOpen(o => !o)} title="AI Copilot">
+        {copilotOpen ? '✕' : '✦'}
+      </button>
     </div>
   )
 }

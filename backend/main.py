@@ -6,6 +6,8 @@ import yfinance as yf
 import anthropic
 import os
 import json
+import time
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -197,6 +199,123 @@ async def get_financials(ticker: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Markets & Screener data ────────────────────────────────────────────────
+
+_markets_cache = {"data": None, "ts": 0}
+_screener_cache = {"data": None, "ts": 0}
+CACHE_TTL = 300  # 5 minutes
+
+INDICES = [
+    {"name": "S&P 500",     "symbol": "^GSPC"},
+    {"name": "NASDAQ",      "symbol": "^IXIC"},
+    {"name": "DOW Jones",   "symbol": "^DJI"},
+    {"name": "Russell 2000","symbol": "^RUT"},
+    {"name": "VIX",         "symbol": "^VIX"},
+]
+
+SECTOR_ETFS = [
+    {"name": "Technology",    "symbol": "XLK"},
+    {"name": "Healthcare",    "symbol": "XLV"},
+    {"name": "Financials",    "symbol": "XLF"},
+    {"name": "Energy",        "symbol": "XLE"},
+    {"name": "Consumer Disc.","symbol": "XLY"},
+    {"name": "Industrials",   "symbol": "XLI"},
+    {"name": "Utilities",     "symbol": "XLU"},
+    {"name": "Real Estate",   "symbol": "XLRE"},
+    {"name": "Materials",     "symbol": "XLB"},
+]
+
+SCREENER_STOCKS = [
+    {"symbol": "AAPL",  "name": "Apple Inc.",            "sector": "Technology"},
+    {"symbol": "MSFT",  "name": "Microsoft Corp.",        "sector": "Technology"},
+    {"symbol": "NVDA",  "name": "NVIDIA Corp.",           "sector": "Technology"},
+    {"symbol": "GOOGL", "name": "Alphabet Inc.",          "sector": "Technology"},
+    {"symbol": "META",  "name": "Meta Platforms",         "sector": "Technology"},
+    {"symbol": "AVGO",  "name": "Broadcom Inc.",          "sector": "Technology"},
+    {"symbol": "AMD",   "name": "Advanced Micro Devices", "sector": "Technology"},
+    {"symbol": "ORCL",  "name": "Oracle Corp.",           "sector": "Technology"},
+    {"symbol": "CRM",   "name": "Salesforce Inc.",        "sector": "Technology"},
+    {"symbol": "NFLX",  "name": "Netflix Inc.",           "sector": "Technology"},
+    {"symbol": "INTC",  "name": "Intel Corp.",            "sector": "Technology"},
+    {"symbol": "PLTR",  "name": "Palantir Technologies",  "sector": "Technology"},
+    {"symbol": "JPM",   "name": "JPMorgan Chase",         "sector": "Financials"},
+    {"symbol": "BAC",   "name": "Bank of America",        "sector": "Financials"},
+    {"symbol": "GS",    "name": "Goldman Sachs",          "sector": "Financials"},
+    {"symbol": "V",     "name": "Visa Inc.",              "sector": "Financials"},
+    {"symbol": "MA",    "name": "Mastercard Inc.",        "sector": "Financials"},
+    {"symbol": "PYPL",  "name": "PayPal Holdings",        "sector": "Financials"},
+    {"symbol": "COIN",  "name": "Coinbase Global",        "sector": "Financials"},
+    {"symbol": "SOFI",  "name": "SoFi Technologies",      "sector": "Financials"},
+    {"symbol": "AMZN",  "name": "Amazon.com Inc.",        "sector": "Consumer"},
+    {"symbol": "TSLA",  "name": "Tesla Inc.",             "sector": "Consumer"},
+    {"symbol": "COST",  "name": "Costco Wholesale",       "sector": "Consumer"},
+    {"symbol": "WMT",   "name": "Walmart Inc.",           "sector": "Consumer"},
+    {"symbol": "DIS",   "name": "Walt Disney Co.",        "sector": "Consumer"},
+    {"symbol": "UBER",  "name": "Uber Technologies",      "sector": "Consumer"},
+    {"symbol": "PG",    "name": "Procter & Gamble",       "sector": "Consumer"},
+    {"symbol": "JNJ",   "name": "Johnson & Johnson",      "sector": "Healthcare"},
+    {"symbol": "UNH",   "name": "UnitedHealth Group",     "sector": "Healthcare"},
+    {"symbol": "PFE",   "name": "Pfizer Inc.",            "sector": "Healthcare"},
+    {"symbol": "ABBV",  "name": "AbbVie Inc.",            "sector": "Healthcare"},
+    {"symbol": "MRK",   "name": "Merck & Co.",            "sector": "Healthcare"},
+    {"symbol": "XOM",   "name": "Exxon Mobil Corp.",      "sector": "Energy"},
+    {"symbol": "CVX",   "name": "Chevron Corp.",          "sector": "Energy"},
+    {"symbol": "HD",    "name": "Home Depot Inc.",        "sector": "Industrials"},
+]
+
+
+def _fetch_quote_sync(symbol):
+    try:
+        fi = yf.Ticker(symbol).fast_info
+        price = safe(fi.last_price)
+        prev  = safe(fi.previous_close)
+        chg   = safe(((price - prev) / prev) * 100) if price and prev else None
+        return {
+            "price": price,
+            "changePercent": chg,
+            "marketCap": safe(fi.market_cap, 0),
+            "volume": safe(fi.three_month_average_volume, 0),
+        }
+    except Exception:
+        return {"price": None, "changePercent": None, "marketCap": None, "volume": None}
+
+
+@app.get("/api/markets")
+async def get_markets():
+    global _markets_cache
+    if _markets_cache["data"] and time.time() - _markets_cache["ts"] < CACHE_TTL:
+        return _markets_cache["data"]
+
+    all_items = INDICES + SECTOR_ETFS
+    loop = asyncio.get_event_loop()
+    tasks = [loop.run_in_executor(None, _fetch_quote_sync, item["symbol"]) for item in all_items]
+    live = await asyncio.gather(*tasks)
+
+    n = len(INDICES)
+    indices = [{**item, **live[i]} for i, item in enumerate(INDICES)]
+    sectors = [{**item, **live[n + i]} for i, item in enumerate(SECTOR_ETFS)]
+
+    data = {"indices": indices, "sectors": sectors}
+    _markets_cache = {"data": data, "ts": time.time()}
+    return data
+
+
+@app.get("/api/screener")
+async def get_screener():
+    global _screener_cache
+    if _screener_cache["data"] and time.time() - _screener_cache["ts"] < CACHE_TTL:
+        return _screener_cache["data"]
+
+    loop = asyncio.get_event_loop()
+    tasks = [loop.run_in_executor(None, _fetch_quote_sync, s["symbol"]) for s in SCREENER_STOCKS]
+    live = await asyncio.gather(*tasks)
+
+    stocks = [{**s, **live[i]} for i, s in enumerate(SCREENER_STOCKS)]
+    data = {"stocks": stocks}
+    _screener_cache = {"data": data, "ts": time.time()}
+    return data
 
 
 @app.get("/api/search")

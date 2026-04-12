@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { createChart, CrosshairMode } from 'lightweight-charts'
 
-const PERIOD_MAP = {
-  '1W': { period: '5d',  interval: '15m' },
-  '1M': { period: '1mo', interval: '1d'  },
-  '3M': { period: '3mo', interval: '1d'  },
-  '6M': { period: '6mo', interval: '1d'  },
-  '1Y': { period: '1y',  interval: '1d'  },
-  '5Y': { period: '5y',  interval: '1wk' },
+function getChartColors() {
+  const s = getComputedStyle(document.documentElement)
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light'
+  return {
+    grid: isDark ? '#1a1a2e' : '#e8eaf0',
+    border: isDark ? '#1c1c30' : '#d8dce8',
+    text: isDark ? '#6b7096' : '#7080a0',
+  }
 }
 
 export default function StockChart({ ticker, period, chartData, loading }) {
@@ -17,17 +18,18 @@ export default function StockChart({ ticker, period, chartData, loading }) {
 
   useEffect(() => {
     if (!containerRef.current) return
+    const c = getChartColors()
 
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
-      height: 300,
+      height: window.innerWidth < 768 ? 220 : 300,
       layout: {
         background: { color: 'transparent' },
-        textColor: '#6b7096',
+        textColor: c.text,
       },
       grid: {
-        vertLines: { color: '#1a1a2e', style: 1 },
-        horzLines: { color: '#1a1a2e', style: 1 },
+        vertLines: { color: c.grid, style: 1 },
+        horzLines: { color: c.grid, style: 1 },
       },
       crosshair: {
         mode: CrosshairMode.Normal,
@@ -35,11 +37,11 @@ export default function StockChart({ ticker, period, chartData, loading }) {
         horzLine: { color: '#4f6ef7', width: 1, style: 2 },
       },
       rightPriceScale: {
-        borderColor: '#1c1c30',
+        borderColor: c.border,
         scaleMargins: { top: 0.1, bottom: 0.1 },
       },
       timeScale: {
-        borderColor: '#1c1c30',
+        borderColor: c.border,
         timeVisible: true,
         secondsVisible: false,
       },

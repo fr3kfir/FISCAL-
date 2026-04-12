@@ -23,7 +23,7 @@ function formatMessage(text) {
     .replace(/\n/g, '<br/>')
 }
 
-export default function AICopilot({ ticker, stockContext }) {
+export default function AICopilot({ ticker, stockContext, mobileOpen }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -123,7 +123,7 @@ export default function AICopilot({ ticker, stockContext }) {
   }
 
   return (
-    <aside className="copilot-panel">
+    <aside className={`copilot-panel${mobileOpen ? ' mobile-open' : ''}`}>
       <div className="copilot-header">
         <div className="copilot-icon">✦</div>
         <div>
