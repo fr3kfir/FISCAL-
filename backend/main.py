@@ -8,6 +8,7 @@ import os
 import json
 import time
 import asyncio
+import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -16,6 +17,21 @@ from typing import Optional
 load_dotenv()
 
 app = FastAPI(title="Fiscal AI Clone")
+
+# ── yfinance session with browser headers (avoids Yahoo rate-limits on cloud IPs) ──
+_yf_session = requests.Session()
+_yf_session.headers.update({
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+})
+
+def make_ticker(symbol: str) -> yf.Ticker:
+    return yf.Ticker(symbol.upper(), session=_yf_session)
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,7 +59,7 @@ def safe(val, decimals=2):
 @app.get("/api/stock/{ticker}")
 async def get_stock(ticker: str):
     try:
-        stock = yf.Ticker(ticker.upper())
+        stock = make_ticker(ticker)
         fi = stock.fast_info
 
         price = safe(fi.last_price)
@@ -96,7 +112,7 @@ async def get_stock(ticker: str):
 @app.get("/api/stock/{ticker}/chart")
 async def get_chart(ticker: str, period: str = "1y", interval: str = "1d"):
     try:
-        stock = yf.Ticker(ticker.upper())
+        stock = make_ticker(ticker)
         hist = stock.history(period=period, interval=interval)
 
         if hist.empty:
@@ -123,7 +139,7 @@ async def get_chart(ticker: str, period: str = "1y", interval: str = "1d"):
 @app.get("/api/stock/{ticker}/financials")
 async def get_financials(ticker: str):
     try:
-        stock = yf.Ticker(ticker.upper())
+        stock = make_ticker(ticker)
 
         # Annual statements
         income   = stock.income_stmt
@@ -268,7 +284,7 @@ SCREENER_STOCKS = [
 
 def _fetch_quote_sync(symbol):
     try:
-        fi = yf.Ticker(symbol).fast_info
+        fi = make_ticker(symbol).fast_info
         price = safe(fi.last_price)
         prev  = safe(fi.previous_close)
         chg   = safe(((price - prev) / prev) * 100) if price and prev else None
@@ -321,7 +337,7 @@ async def get_screener():
 @app.get("/api/stock/{ticker}/ownership")
 async def get_ownership(ticker: str):
     try:
-        stock = yf.Ticker(ticker.upper())
+        stock = make_ticker(ticker)
         info = {}
         try:
             info = stock.info or {}
