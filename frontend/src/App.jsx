@@ -4,6 +4,7 @@ import Header from './components/Header'
 import StockChart from './components/StockChart'
 import StockStats from './components/StockStats'
 import FundamentalsChart from './components/FundamentalsChart'
+import OwnershipPanel from './components/OwnershipPanel'
 import AICopilot from './components/AICopilot'
 import MarketsPage from './pages/MarketsPage'
 import ScreenerPage from './pages/ScreenerPage'
@@ -119,8 +120,10 @@ export default function App() {
   const [stock, setStock] = useState(null)
   const [chartData, setChartData] = useState([])
   const [financials, setFinancials] = useState(null)
+  const [ownership, setOwnership] = useState(null)
   const [stockLoading, setStockLoading] = useState(false)
   const [chartLoading, setChartLoading] = useState(false)
+  const [ownershipLoading, setOwnershipLoading] = useState(false)
   const [period, setPeriod] = useState('1Y')
   const [descExpanded, setDescExpanded] = useState(false)
   const [darkMode, toggleDarkMode] = useTheme()
@@ -166,6 +169,17 @@ export default function App() {
     } catch {}
   }
 
+  const fetchOwnership = async (t) => {
+    setOwnershipLoading(true)
+    setOwnership(null)
+    try {
+      const res = await fetch(`${API}/api/stock/${t}/ownership`)
+      const data = await res.json()
+      setOwnership(data)
+    } catch {}
+    finally { setOwnershipLoading(false) }
+  }
+
   const selectTicker = (t) => {
     const upper = t.toUpperCase()
     setTicker(upper)
@@ -173,6 +187,7 @@ export default function App() {
     fetchStock(upper)
     fetchChart(upper, period)
     fetchFinancials(upper)
+    fetchOwnership(upper)
   }
 
   const handlePeriodChange = (p) => {
@@ -291,6 +306,8 @@ export default function App() {
                     )}
 
                     <FundamentalsChart financials={financials} loading={stockLoading && !financials} />
+
+                    <OwnershipPanel ownership={ownership} loading={ownershipLoading} />
 
                     {financials && (
                       <div className="financials-card">

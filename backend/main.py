@@ -318,6 +318,74 @@ async def get_screener():
     return data
 
 
+@app.get("/api/stock/{ticker}/ownership")
+async def get_ownership(ticker: str):
+    try:
+        stock = yf.Ticker(ticker.upper())
+        info = {}
+        try:
+            info = stock.info or {}
+        except Exception:
+            pass
+
+        shares_short = info.get("sharesShort")
+        shares_short_prior = info.get("sharesShortPriorMonth")
+
+        short_change = None
+        if shares_short and shares_short_prior and shares_short_prior > 0:
+            short_change = safe(((shares_short - shares_short_prior) / shares_short_prior) * 100)
+
+        short_interest = {
+            "sharesShort": shares_short,
+            "sharesShortPriorMonth": shares_short_prior,
+            "shortPercentOfFloat": safe(info.get("shortPercentOfFloat"), 4),
+            "shortRatio": safe(info.get("shortRatio")),
+            "floatShares": info.get("floatShares"),
+            "shortChange": short_change,
+        }
+
+        major_holders = []
+        try:
+            mh = stock.major_holders
+            if mh is not None and not mh.empty:
+                for _, row in mh.iterrows():
+                    try:
+                        major_holders.append({
+                            "value": float(row.iloc[0]),
+                            "label": str(row.iloc[1]),
+                        })
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        institutions = []
+        try:
+            ih = stock.institutional_holders
+            if ih is not None and not ih.empty:
+                for _, row in ih.head(15).iterrows():
+                    try:
+                        d = row.to_dict()
+                        institutions.append({
+                            "holder": str(d.get("Holder", "")),
+                            "shares": int(d["Shares"]) if d.get("Shares") is not None else None,
+                            "pctHeld": safe(d.get("% Out"), 4),
+                            "value": safe(d.get("Value"), 0),
+                        })
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        return {
+            "shortInterest": short_interest,
+            "majorHolders": major_holders,
+            "institutions": institutions,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/search")
 async def search_stocks(q: str):
     tickers = [
