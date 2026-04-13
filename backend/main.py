@@ -353,11 +353,12 @@ async def get_ownership(ticker: str):
         try:
             mh = stock.major_holders
             if mh is not None and not mh.empty:
-                for _, row in mh.iterrows():
+                # yfinance 1.x: index = label name, single column "Value"
+                for idx, row in mh.iterrows():
                     try:
                         major_holders.append({
                             "value": float(row.iloc[0]),
-                            "label": str(row.iloc[1]),
+                            "label": str(idx),
                         })
                     except Exception:
                         pass
