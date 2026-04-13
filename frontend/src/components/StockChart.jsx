@@ -275,13 +275,19 @@ export default function StockChart({ ticker, period, chartData, loading }) {
         </div>
       </div>
 
-      {loading ? (
-        <div style={{ height: 360, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading chart...</span>
-        </div>
-      ) : (
+      {/* Container MUST always be rendered — conditional unmount destroys chart */}
+      <div style={{ position: 'relative' }}>
         <div ref={containerRef} style={{ width: '100%' }} />
-      )}
+        {loading && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, height: 360,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'var(--bg-card)', zIndex: 2, borderRadius: 12,
+          }}>
+            <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Loading chart...</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

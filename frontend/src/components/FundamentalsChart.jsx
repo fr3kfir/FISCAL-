@@ -111,7 +111,7 @@ function BarLabel({ x, y, width, value, metric, index, data }) {
 export default function FundamentalsChart({ financials, loading }) {
   const [activeGroup,  setActiveGroup]  = useState('income')
   const [activeMetric, setActiveMetric] = useState('Total Revenue')
-  const [periodMode,   setPeriodMode]   = useState('annual')   // 'annual' | 'quarterly'
+  const [periodMode,   setPeriodMode]   = useState('quarterly') // default quarterly — shows latest data
 
   if (loading) {
     return (
@@ -315,12 +315,28 @@ export default function FundamentalsChart({ financials, loading }) {
         {data
           .filter(d => d[metric.key] != null)
           .map((d, i, arr) => {
-            const val    = d[metric.key]
-            const change = yoyChange(arr, metric.key, i)
+            const val      = d[metric.key]
+            const change   = yoyChange(arr, metric.key, i)
+            const isLatest = i === arr.length - 1
             return (
-              <div key={d.year} style={{ minWidth: 70 }}>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 3 }}>{d.year}</div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: val < 0 ? 'var(--red)' : 'var(--text-primary)' }}>
+              <div key={d.year} style={{
+                minWidth: 80,
+                padding: isLatest ? '8px 10px' : '0',
+                borderRadius: isLatest ? 8 : 0,
+                background: isLatest ? 'var(--accent-dim)' : 'transparent',
+                border: isLatest ? '1px solid var(--accent)' : 'none',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{d.year}</span>
+                  {isLatest && (
+                    <span style={{
+                      fontSize: 9, fontWeight: 700,
+                      background: 'var(--accent)', color: '#fff',
+                      borderRadius: 3, padding: '1px 4px', letterSpacing: '0.04em',
+                    }}>LATEST</span>
+                  )}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: val < 0 ? 'var(--red)' : isLatest ? 'var(--accent-hover)' : 'var(--text-primary)' }}>
                   {fmtVal(val, metric.fmt)}
                 </div>
                 {change != null && (

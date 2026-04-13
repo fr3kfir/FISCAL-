@@ -8,7 +8,6 @@ import os
 import json
 import time
 import asyncio
-import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -18,20 +17,10 @@ load_dotenv()
 
 app = FastAPI(title="Fiscal AI Clone")
 
-# ── yfinance session with browser headers (avoids Yahoo rate-limits on cloud IPs) ──
-_yf_session = requests.Session()
-_yf_session.headers.update({
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-})
-
 def make_ticker(symbol: str) -> yf.Ticker:
-    return yf.Ticker(symbol.upper(), session=_yf_session)
+    # yfinance >=1.0 uses curl_cffi internally to impersonate Chrome —
+    # do NOT pass a requests.Session or it will throw YFDataException.
+    return yf.Ticker(symbol.upper())
 
 app.add_middleware(
     CORSMiddleware,
