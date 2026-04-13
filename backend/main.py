@@ -56,12 +56,69 @@ async def get_stock(ticker: str):
         change = safe(price - prev) if price and prev else None
         change_pct = safe((change / prev) * 100) if change and prev else None
 
-        # Try to get extra info (may fail with rate limit — gracefully degrade)
+        # ── Try stock.info (may be blocked on cloud IPs) ───────────────────
         info = {}
         try:
             info = stock.info or {}
         except Exception:
             pass
+
+        # ── Always fetch financial statements — reliable on any server ──────
+        # Use these to fill in stats even when stock.info fails on Render
+        inc, bal = None, None
+        try:
+            inc = stock.income_stmt
+        except Exception:
+            pass
+        try:
+            bal = stock.balance_sheet
+        except Exception:
+            pass
+
+        def stmt_val(df, row_name):
+            """Latest annual value for a row in a financial statement."""
+            try:
+                if df is not None and not df.empty and row_name in df.index:
+                    v = float(df.loc[row_name, df.columns[0]])
+                    return v if v == v else None   # nan check
+            except Exception:
+                pass
+            return None
+
+        # Computed from statements (fallback when info is missing)
+        rev_stmt  = stmt_val(inc, "Total Revenue")
+        ni_stmt   = stmt_val(inc, "Net Income")
+        gp_stmt   = stmt_val(inc, "Gross Profit")
+        eps_stmt  = stmt_val(inc, "Basic EPS")
+        eq_stmt   = stmt_val(bal, "Stockholders Equity")
+        debt_stmt = stmt_val(bal, "Total Debt")
+        mc        = safe(fi.market_cap, 0)
+
+        # Final values: prefer stock.info, fall back to statement calculations
+        revenue        = safe(info.get("totalRevenue"), 0) or (safe(rev_stmt, 0) if rev_stmt else None)
+        eps            = safe(info.get("trailingEps"))     or (safe(eps_stmt) if eps_stmt else None)
+        profit_margins = safe(info.get("profitMargins"))
+        gross_margins  = safe(info.get("grossMargins"))
+        roe            = safe(info.get("returnOnEquity"))
+        de             = safe(info.get("debtToEquity"))
+        pb             = safe(info.get("priceToBook"))
+
+        # Fill from statements when info is missing
+        if profit_margins is None and ni_stmt and rev_stmt and rev_stmt != 0:
+            profit_margins = safe(ni_stmt / rev_stmt)
+        if gross_margins is None and gp_stmt and rev_stmt and rev_stmt != 0:
+            gross_margins = safe(gp_stmt / rev_stmt)
+        if roe is None and ni_stmt and eq_stmt and eq_stmt != 0:
+            roe = safe(ni_stmt / eq_stmt)
+        if de is None and debt_stmt is not None and eq_stmt and eq_stmt != 0:
+            de = safe((debt_stmt / eq_stmt) * 100)
+        if pb is None and mc and eq_stmt and eq_stmt > 0:
+            pb = safe(mc / eq_stmt)
+
+        # P/E from price / EPS when trailingPE is missing
+        pe = safe(info.get("trailingPE"))
+        if pe is None and price and eps and eps != 0:
+            pe = safe(price / eps)
 
         return {
             "symbol": ticker.upper(),
@@ -69,11 +126,11 @@ async def get_stock(ticker: str):
             "price": price,
             "change": change,
             "changePercent": change_pct,
-            "marketCap": safe(fi.market_cap, 0),
-            "peRatio": safe(info.get("trailingPE")),
+            "marketCap": mc,
+            "peRatio": pe,
             "forwardPE": safe(info.get("forwardPE")),
-            "eps": safe(info.get("trailingEps")),
-            "revenue": safe(info.get("totalRevenue"), 0),
+            "eps": eps,
+            "revenue": revenue,
             "volume": safe(fi.three_month_average_volume, 0),
             "avgVolume": safe(fi.three_month_average_volume, 0),
             "high52": safe(fi.year_high),
@@ -88,11 +145,11 @@ async def get_stock(ticker: str):
             "country": info.get("country"),
             "currency": info.get("currency") or getattr(fi, "currency", "USD"),
             "exchange": info.get("exchange") or getattr(fi, "exchange", None),
-            "priceToBook": safe(info.get("priceToBook")),
-            "debtToEquity": safe(info.get("debtToEquity")),
-            "returnOnEquity": safe(info.get("returnOnEquity")),
-            "profitMargins": safe(info.get("profitMargins")),
-            "grossMargins": safe(info.get("grossMargins")),
+            "priceToBook": pb,
+            "debtToEquity": de,
+            "returnOnEquity": roe,
+            "profitMargins": profit_margins,
+            "grossMargins": gross_margins,
         }
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Stock not found: {str(e)}")
