@@ -1,5 +1,6 @@
-// OwnershipPanel — Short Interest + Institutional Ownership
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 
+// ── Formatters ──────────────────────────────────────────────────────────────
 function fmtShares(n) {
   if (n == null) return '—'
   if (n >= 1e9) return `${(n / 1e9).toFixed(2)}B`
@@ -15,11 +16,7 @@ function fmtVal(n) {
   return `$${n.toLocaleString()}`
 }
 
-function fmtPct(n, decimals = 2) {
-  if (n == null) return '—'
-  return (n * 100).toFixed(decimals) + '%'
-}
-
+// ── Short Interest metric box ────────────────────────────────────────────────
 function MetricBox({ label, value, sub, highlight }) {
   return (
     <div style={{
@@ -38,59 +35,119 @@ function MetricBox({ label, value, sub, highlight }) {
   )
 }
 
-function OwnershipBar({ majorHolders }) {
-  // Extract % institutions and % insiders from majorHolders array
-  let instPct  = null
+// ── Donut chart + legend ─────────────────────────────────────────────────────
+const SLICE_COLORS = ['#4f6ef7', '#f59e0b', '#22c55e', '#a78bfa', '#6b7096']
+
+function OwnershipPie({ majorHolders }) {
+  let instPct   = null
   let insidePct = null
 
   majorHolders?.forEach(({ value, label }) => {
     const l = (label || '').toLowerCase()
-    if (l.includes('institution') && !l.includes('float')) instPct  = value
+    if (l.includes('institution') && !l.includes('float')) instPct   = value
     if (l.includes('insider'))                              insidePct = value
   })
 
   if (instPct == null && insidePct == null) return null
 
-  const inst   = (instPct  || 0) * 100
-  const insider = (insidePct || 0) * 100
-  const retail  = Math.max(0, 100 - inst - insider)
+  const inst    = Math.round((instPct   || 0) * 1000) / 10  // one decimal
+  const insider = Math.round((insidePct || 0) * 1000) / 10
+  const retail  = Math.max(0, Math.round((100 - inst - insider) * 10) / 10)
 
-  const segments = [
-    { label: 'Institutions', pct: inst,   color: '#4f6ef7' },
-    { label: 'Insiders',     pct: insider, color: '#f59e0b' },
-    { label: 'Retail/Other', pct: retail,  color: '#6b7096' },
-  ]
+  const slices = [
+    { name: 'Institutions', value: inst,    color: '#4f6ef7' },
+    { name: 'Insiders',     value: insider,  color: '#f59e0b' },
+    { name: 'Retail / Other', value: retail, color: '#6b7096' },
+  ].filter(s => s.value > 0)
+
+  const CustomTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null
+    const s = payload[0].payload
+    return (
+      <div style={{
+        background: '#10101e', border: '1px solid #1c1c30',
+        borderRadius: 8, padding: '8px 14px', fontSize: 13,
+      }}>
+        <div style={{ color: s.color, fontWeight: 700 }}>{s.name}</div>
+        <div style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>{s.value.toFixed(1)}%</div>
+      </div>
+    )
+  }
+
+  const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, value }) => {
+    if (value < 5) return null   // skip tiny slices
+    const RADIAN = Math.PI / 180
+    const r = innerRadius + (outerRadius - innerRadius) * 0.55
+    const x = cx + r * Math.cos(-midAngle * RADIAN)
+    const y = cy + r * Math.sin(-midAngle * RADIAN)
+    return (
+      <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central"
+        fontSize={12} fontWeight={700}>
+        {value.toFixed(1)}%
+      </text>
+    )
+  }
 
   return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Ownership Breakdown</div>
-
-      {/* Stacked bar */}
-      <div style={{ display: 'flex', height: 12, borderRadius: 6, overflow: 'hidden', marginBottom: 10 }}>
-        {segments.map(s => s.pct > 0 && (
-          <div
-            key={s.label}
-            style={{ width: `${s.pct}%`, background: s.color, transition: 'width 0.4s' }}
-            title={`${s.label}: ${s.pct.toFixed(1)}%`}
-          />
-        ))}
+    <div style={{ marginBottom: 24 }}>
+      <div style={{
+        fontSize: 12, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16,
+      }}>
+        Ownership Breakdown
       </div>
 
-      {/* Legend */}
-      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-        {segments.map(s => (
-          <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              {s.label} <strong style={{ color: 'var(--text-primary)' }}>{s.pct.toFixed(1)}%</strong>
-            </span>
-          </div>
-        ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+        {/* Donut */}
+        <div style={{ width: 200, height: 200, flexShrink: 0 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={slices}
+                cx="50%" cy="50%"
+                innerRadius={55}
+                outerRadius={90}
+                paddingAngle={3}
+                dataKey="value"
+                labelLine={false}
+                label={<CustomLabel />}
+              >
+                {slices.map((s, i) => (
+                  <Cell key={s.name} fill={s.color} stroke="none" />
+                ))}
+              </Pie>
+              <Tooltip content={<CustomTooltip />} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Legend cards */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minWidth: 160 }}>
+          {slices.map(s => (
+            <div key={s.name} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              background: 'var(--bg-input)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '10px 14px',
+            }}>
+              <div style={{
+                width: 12, height: 12, borderRadius: '50%',
+                background: s.color, flexShrink: 0,
+              }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{s.name}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>
+                  {s.value.toFixed(1)}%
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
 }
 
+// ── Main component ───────────────────────────────────────────────────────────
 export default function OwnershipPanel({ ownership, loading }) {
   if (loading) {
     return (
@@ -116,15 +173,23 @@ export default function OwnershipPanel({ ownership, loading }) {
     <div className="financials-card">
       <div className="card-title">Ownership & Short Interest</div>
 
+      {/* ── Ownership Donut ── */}
+      {majorHolders?.length > 0 && (
+        <OwnershipPie majorHolders={majorHolders} />
+      )}
+
       {/* ── Short Interest ── */}
-      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+      <div style={{
+        fontSize: 12, fontWeight: 600, color: 'var(--text-muted)',
+        textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12,
+      }}>
         Short Interest
       </div>
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
         gap: 10,
-        marginBottom: 24,
+        marginBottom: 28,
       }}>
         <MetricBox
           label="% Float Shorted"
@@ -152,15 +217,13 @@ export default function OwnershipPanel({ ownership, loading }) {
         />
       </div>
 
-      {/* ── Ownership Breakdown ── */}
-      {majorHolders?.length > 0 && (
-        <OwnershipBar majorHolders={majorHolders} />
-      )}
-
-      {/* ── Top Institutions ── */}
+      {/* ── Top Institutional Holders ── */}
       {institutions?.length > 0 && (
         <>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: 'var(--text-muted)',
+            textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12,
+          }}>
             Top Institutional Holders
           </div>
           <div style={{ overflowX: 'auto' }}>
