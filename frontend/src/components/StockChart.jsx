@@ -102,13 +102,15 @@ export default function StockChart({ ticker, period, chartData, loading }) {
     }
     mainRef.current = series
 
-    // ── Volume histogram (overlaid on right scale, pinned to bottom) ──
+    // ── Volume histogram — SEPARATE hidden scale so it never conflicts with price axis ──
     const volSeries = chart.addHistogramSeries({
       priceFormat:  { type: 'volume' },
-      priceScaleId: 'right',
+      priceScaleId: 'vol',           // own named scale, not 'right'
     })
-    volSeries.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } })
-    series.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.26 } })
+    chart.priceScale('vol').applyOptions({
+      scaleMargins: { top: 0.82, bottom: 0 }, // bottom 18% of chart
+      visible: false,                           // hide the volume numbers from the axis
+    })
     volRef.current = volSeries
 
     // ── Re-create any currently active MA series ──
