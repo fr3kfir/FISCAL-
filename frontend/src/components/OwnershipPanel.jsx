@@ -44,8 +44,8 @@ function OwnershipPie({ majorHolders }) {
 
   majorHolders?.forEach(({ value, label }) => {
     const l = (label || '').toLowerCase()
-    if (l.includes('institution') && !l.includes('float')) instPct   = value
-    if (l.includes('insider'))                              insidePct = value
+    if (l.includes('institution') && !l.includes('float') && !l.includes('count')) instPct = value
+    if (l.includes('insider') && !l.includes('count')) insidePct = value
   })
 
   if (instPct == null && insidePct == null) return null

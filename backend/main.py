@@ -8,10 +8,11 @@ import os
 import json
 import time
 import asyncio
+import requests
 from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 
 load_dotenv()
 
@@ -43,6 +44,35 @@ def safe(val, decimals=2):
         return round(f, decimals)
     except Exception:
         return None
+
+
+_YF_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json,text/plain,*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://finance.yahoo.com/",
+}
+
+def fetch_quote_summary(symbol: str, modules: str) -> dict:
+    """Direct Yahoo Finance quoteSummary fetch — bypasses yfinance for cloud-blocked data."""
+    for base in ("https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"):
+        try:
+            url = f"{base}/v10/finance/quoteSummary/{symbol.upper()}"
+            resp = requests.get(url, params={"modules": modules}, headers=_YF_HEADERS, timeout=10)
+            data = resp.json()
+            results = data.get("quoteSummary", {}).get("result") or []
+            if results:
+                return results[0]
+        except Exception:
+            continue
+    return {}
+
+def _raw(d: dict, key: str):
+    """Extract .raw from Yahoo Finance nested value dicts."""
+    v = d.get(key)
+    if isinstance(v, dict):
+        return v.get("raw")
+    return v
 
 
 @app.get("/api/stock/{ticker}")
@@ -384,11 +414,33 @@ async def get_screener():
 async def get_ownership(ticker: str):
     try:
         stock = make_ticker(ticker)
+
+        # Try stock.info first; fall back to direct API call for short interest
         info = {}
         try:
             info = stock.info or {}
         except Exception:
             pass
+
+        # If info is empty or missing short-interest fields, fetch directly
+        short_fields = ("sharesShort", "shortPercentOfFloat", "shortRatio", "floatShares")
+        if not any(info.get(f) for f in short_fields):
+            loop = asyncio.get_event_loop()
+            summary = await loop.run_in_executor(
+                None, fetch_quote_summary, ticker, "defaultKeyStatistics,summaryDetail"
+            )
+            ks = summary.get("defaultKeyStatistics", {})
+            sd = summary.get("summaryDetail", {})
+            # Merge only missing keys so stock.info values (if any) take priority
+            for key, src, src_key in [
+                ("sharesShort",          ks, "sharesShort"),
+                ("sharesShortPriorMonth",ks, "sharesShortPriorMonth"),
+                ("shortPercentOfFloat",  ks, "shortPercentOfFloat"),
+                ("shortRatio",           ks, "shortRatio"),
+                ("floatShares",          ks, "floatShares"),
+            ]:
+                if not info.get(key):
+                    info[key] = _raw(src, src_key)
 
         shares_short = info.get("sharesShort")
         shares_short_prior = info.get("sharesShortPriorMonth")
@@ -410,13 +462,18 @@ async def get_ownership(ticker: str):
         try:
             mh = stock.major_holders
             if mh is not None and not mh.empty:
-                # yfinance 1.x: index = label name, single column "Value"
                 for idx, row in mh.iterrows():
                     try:
-                        major_holders.append({
-                            "value": float(row.iloc[0]),
-                            "label": str(idx),
-                        })
+                        # yfinance 0.2.x+: index IS the label, iloc[0] is value
+                        # older format: col "Breakdown" holds label
+                        if "Breakdown" in row.index:
+                            label = str(row["Breakdown"])
+                            value = float(row.iloc[0])
+                        else:
+                            label = str(idx)
+                            value = float(row.iloc[0])
+                        if value == value:  # nan check
+                            major_holders.append({"value": value, "label": label})
                     except Exception:
                         pass
         except Exception:
@@ -429,11 +486,26 @@ async def get_ownership(ticker: str):
                 for _, row in ih.head(15).iterrows():
                     try:
                         d = row.to_dict()
+                        # Handle multiple possible column names across yfinance versions
+                        pct_raw = (d.get("% Out") or d.get("pctHeld") or
+                                   d.get("% out") or d.get("Pct Out") or d.get("percentageHeld"))
+                        pct_val = None
+                        if pct_raw is not None:
+                            pct_float = float(pct_raw)
+                            # Normalize: if > 1 it was already a percentage, convert to decimal
+                            if pct_float > 1:
+                                pct_float = pct_float / 100
+                            pct_val = safe(pct_float, 4)
+
+                        val_raw = d.get("Value") or d.get("value") or d.get("Market Value")
+                        holder_name = str(d.get("Holder") or d.get("holder") or d.get("Name") or "")
+                        shares_raw = d.get("Shares") or d.get("shares")
+
                         institutions.append({
-                            "holder": str(d.get("Holder", "")),
-                            "shares": int(d["Shares"]) if d.get("Shares") is not None else None,
-                            "pctHeld": safe(d.get("% Out"), 4),
-                            "value": safe(d.get("Value"), 0),
+                            "holder": holder_name,
+                            "shares": int(shares_raw) if shares_raw is not None else None,
+                            "pctHeld": pct_val,
+                            "value": safe(val_raw, 0) if val_raw is not None else None,
                         })
                     except Exception:
                         pass
@@ -462,10 +534,15 @@ async def search_stocks(q: str):
     return {"results": matches}
 
 
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+
 class ChatMessage(BaseModel):
     message: str
     ticker: Optional[str] = None
     stock_context: Optional[dict] = None
+    history: Optional[List[HistoryMessage]] = None
 
 
 @app.post("/api/chat")
@@ -474,32 +551,68 @@ async def chat(body: ChatMessage):
         "You are an expert financial analyst AI assistant, like a Bloomberg terminal AI. "
         "You help investors analyze stocks, understand financial metrics, interpret market trends, "
         "and make informed investment decisions. Be concise, precise, and data-driven. "
-        "Use bullet points and sections for clarity. If no stock is provided, answer general finance questions."
+        "Use bullet points and sections for clarity. If no stock is provided, answer general finance questions.\n\n"
+        "CRITICAL LANGUAGE RULE: Detect the language of the user's latest message and respond ENTIRELY in that language. "
+        "If the user writes in Hebrew (עברית), respond fully in Hebrew. "
+        "If the user writes in English, respond in English. Never mix languages in your response."
     )
 
     context = ""
     if body.ticker and body.stock_context:
         ctx = body.stock_context
-        context = f"\n\nUser is currently viewing: {body.ticker} ({ctx.get('name', '')})\n"
+        context = f"\n\nCurrent stock context — {body.ticker} ({ctx.get('name', '')}):\n"
         if ctx.get("price"):
             context += f"- Price: ${ctx['price']}\n"
         if ctx.get("changePercent") is not None:
             context += f"- Change: {ctx['changePercent']:+.2f}%\n"
         if ctx.get("marketCap"):
-            mc = ctx["marketCap"]
-            context += f"- Market Cap: ${mc/1e9:.2f}B\n"
+            context += f"- Market Cap: ${ctx['marketCap']/1e9:.2f}B\n"
         if ctx.get("peRatio"):
             context += f"- P/E Ratio: {ctx['peRatio']:.2f}\n"
+        if ctx.get("forwardPE"):
+            context += f"- Forward P/E: {ctx['forwardPE']:.2f}\n"
+        if ctx.get("eps"):
+            context += f"- EPS (TTM): ${ctx['eps']:.2f}\n"
+        if ctx.get("revenue"):
+            context += f"- Revenue: ${ctx['revenue']/1e9:.2f}B\n"
+        if ctx.get("profitMargins"):
+            context += f"- Profit Margin: {ctx['profitMargins']*100:.1f}%\n"
+        if ctx.get("returnOnEquity"):
+            context += f"- ROE: {ctx['returnOnEquity']*100:.1f}%\n"
+        if ctx.get("beta"):
+            context += f"- Beta: {ctx['beta']:.2f}\n"
+        if ctx.get("high52") and ctx.get("low52"):
+            context += f"- 52W Range: ${ctx['low52']:.2f} – ${ctx['high52']:.2f}\n"
         if ctx.get("sector"):
             context += f"- Sector: {ctx['sector']}\n"
+        if ctx.get("industry"):
+            context += f"- Industry: {ctx['industry']}\n"
+
+    messages = []
+    if body.history:
+        for h in body.history:
+            if h.role in ("user", "assistant") and h.content.strip():
+                messages.append({"role": h.role, "content": h.content})
+        # Anthropic requires messages to start with 'user'
+        while messages and messages[0]["role"] != "user":
+            messages.pop(0)
+        # Merge consecutive same-role messages (keep last)
+        deduped = []
+        for msg in messages:
+            if deduped and deduped[-1]["role"] == msg["role"]:
+                deduped[-1] = msg
+            else:
+                deduped.append(msg)
+        messages = deduped
+    messages.append({"role": "user", "content": body.message})
 
     def generate():
         try:
             with client.messages.stream(
-                model="claude-opus-4-6",
+                model="claude-sonnet-4-6",
                 max_tokens=1024,
                 system=system_prompt + context,
-                messages=[{"role": "user", "content": body.message}],
+                messages=messages,
             ) as stream:
                 for text in stream.text_stream:
                     yield f"data: {json.dumps({'text': text})}\n\n"

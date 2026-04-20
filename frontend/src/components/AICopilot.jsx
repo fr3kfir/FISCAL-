@@ -27,7 +27,9 @@ export default function AICopilot({ ticker, stockContext, mobileOpen }) {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
-      content: `Hi! I'm your AI financial analyst. ${ticker ? `I can see you're viewing **${ticker}**. Ask me anything about this stock!` : 'Search for a stock or ask me any finance question.'}`
+      content: ticker
+        ? `Hi! I'm your AI financial analyst. I can see you're viewing **${ticker}**. Ask me anything — in English or Hebrew! / שאל אותי כל שאלה על המניה הזו!`
+        : `Hi! I'm your AI financial analyst. Search for a stock or ask me any finance question — in English or Hebrew! / חפש מניה או שאל אותי כל שאלה פיננסית!`
     }
   ])
   const [input, setInput] = useState('')
@@ -43,8 +45,8 @@ export default function AICopilot({ ticker, stockContext, mobileOpen }) {
     setMessages([{
       role: 'assistant',
       content: ticker
-        ? `Switched to **${ticker}**. What would you like to know about this stock?`
-        : 'Ready to help with any finance questions!'
+        ? `Switched to **${ticker}**. What would you like to know? / מה תרצה לדעת על המניה הזו?`
+        : 'Ready to help with any finance questions — in English or Hebrew! / מוכן לענות על כל שאלה פיננסית!'
     }])
   }, [ticker])
 
@@ -53,10 +55,13 @@ export default function AICopilot({ ticker, stockContext, mobileOpen }) {
     if (!userText || streaming) return
 
     setInput('')
+    // Skip opening greeting (first assistant message) — not a real conversation turn
+    const history = messages
+      .filter((m, i) => m.content && !(i === 0 && m.role === 'assistant'))
+      .map(m => ({ role: m.role, content: m.content }))
     setMessages(prev => [...prev, { role: 'user', content: userText }])
     setStreaming(true)
 
-    const assistantIdx = messages.length + 1
     setMessages(prev => [...prev, { role: 'assistant', content: '' }])
 
     try {
@@ -67,6 +72,7 @@ export default function AICopilot({ ticker, stockContext, mobileOpen }) {
           message: userText,
           ticker: ticker || null,
           stock_context: stockContext || null,
+          history: history,
         }),
       })
 
@@ -95,6 +101,12 @@ export default function AICopilot({ ticker, stockContext, mobileOpen }) {
                   role: 'assistant',
                   content: updated[updated.length - 1].content + parsed.text,
                 }
+                return updated
+              })
+            } else if (parsed.error) {
+              setMessages(prev => {
+                const updated = [...prev]
+                updated[updated.length - 1] = { role: 'assistant', content: `⚠️ Error: ${parsed.error}` }
                 return updated
               })
             }
@@ -163,7 +175,7 @@ export default function AICopilot({ ticker, stockContext, mobileOpen }) {
         <textarea
           ref={textareaRef}
           className="copilot-input"
-          placeholder="Ask about financials, valuation, risks..."
+          placeholder="Ask in English or Hebrew… / שאל בעברית או אנגלית..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKey}
